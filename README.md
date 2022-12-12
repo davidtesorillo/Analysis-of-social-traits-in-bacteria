@@ -17,3 +17,6 @@ In the table below is a summary of what has been done in order.
 | Taxonomic Classification | Kraken2      | [[Taxonomic Classification]] |               |
 | Prevalence               | Galaxy       | [[Prevalence of Bacteria]]   |               |
 |                          |              |                              |               |
+
+To be updated for GitHub: 
+- "[[something]]" indicates that the text is linked to the file with the same name. Method used in Obsidian (Need to adjust it for Github in the future)
