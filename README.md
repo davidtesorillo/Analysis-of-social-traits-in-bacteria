@@ -6,7 +6,9 @@ banner_icon: 🦠
 
 # README
 
-| Analysis           | Description                              | File     | Comments |
-| ------------------ | ---------------------------------------- | -------- | -------- |
-| Patients Selection | -                                        | [[Patient Selection]]         |          |
-| Assembly           | Generation of Metagenome Asembly Genomes | [[MAGs]] |          |
+| Analysis               | Program      | File                       | Comments      |
+| ---------------------- | ------------ | -------------------------- | ------------- |
+| Patients Selection     | R            | [[Patient Selection]]      |               |
+| Assembly               | PATRIC       | [[MAGs]]                   | Renaming done |
+| Prediction of Peptides | TransDecoder | [[Prediction of Peptides]] |               |
+| GO analysis            | Pannzer2     | [[GO Analysis]]            |               |
