@@ -1,0 +1,575 @@
+---
+title: "Analysis"
+author: "David Rodriguez Morales"
+date: '2022-12-12'
+output: html_document
+---
+
+
+```{r message=FALSE, warning=FALSE}
+library (tidyverse)
+library(readxl)
+library(jsonlite)
+library(pheatmap)
+library(viridis)
+
+source("myFunctions.R")
+source("loadingdata.R")
+source("GenerateData.R")
+```
+
+
+####### Already in scripts
+
+```{r generate data}
+# Load the data to combined
+path <- "/Users/david/Desktop/PUK/Patients/."
+
+
+folders <- list.dirs(path , full.names = TRUE, recursive = TRUE)
+go.folders <- folders[str_detect(folders, "GO")]
+kraken.folders <-
+  folders[str_detect(folders, "kraken") &
+            str_detect(folders, "complete") == FALSE]
+
+# Load GO data
+for (d in go.folders) {
+  go.files <- list.files(d)
+  for (filename in go.files) {
+    filepath <- file.path(d, filename)
+    assign(paste (c("Patient", filename),  collapse = ""), read.csv(filepath,
+                                                                    sep = "\t"))
+    assign (paste (c("Patient", filename),  collapse = ""),
+            eval(parse(text = paste (c("Patient", filename),  collapse = ""))) %>%
+              mutate (IDs = filename) %>% relocate (IDs))
+  }
+}
+
+# Load Kraken data
+for (d in kraken.folders){
+  ## KRAKEN OUTPUT
+  kraken.files <-
+    list.files(path = d, pattern = "_out")
+  for (file in 1:length(kraken.files)) {
+    filepath <- file.path(d, kraken.files[file])
+    assign(kraken.files[file], read.csv(filepath,
+                                        sep = "\t", header = F))
+    assign(kraken.files[file], eval(parse(text = kraken.files[file])) %>% select(2:3))
+  }
+  ## KRAKEN REPORT
+  kraken.report <-
+    list.files(path = d, pattern = "_report")
+  for (file in 1:length(kraken.report)) {
+    filepath <- file.path(d, kraken.report[file])
+    assign(kraken.report[file], read.csv(filepath, sep = "\t", header = F))
+  }
+}
+
+# Load kraken complete reports
+path2 <- "../../../Patients/kraken_complete/"
+prevalence.kraken <- list.files(path2, pattern="report")
+
+for (f in prevalence.kraken) {
+  filepath <- file.path(path2, f)
+  assign(f, read.csv(filepath,
+                     sep = "\t", header = F))
+}
+
+# Load json files 
+path3 <- "../../../Patients/kraken_complete/json_files/"
+json.files <-
+  list.files(path = path3, pattern = ".json")
+
+for (i in 1:length(json.files)) {
+  filepath <- file.path(path3, json.files[i])
+  assign(json.files[i], read_json(filepath,
+                                  simplifyVector = TRUE)) # Read files
+}
+
+
+
+
+# Save df
+write.table(
+  patients.filt,
+  "../data/Data_5_Patients.txt",
+  quote = F,
+  sep = "\t",
+  row.names = F,
+  col.names = T
+)
+ 
+
+patients.filt %>% filter(is.na (genus.covarage))
+```
+
+```{r}
+
+# Combine data
+patients.filt <- data.frame()
+
+for (patient in go.folders) {
+  go.files <- list.files(patient)
+  kraken.files <-
+    str_extract(
+      list.files(path, recursive = T, pattern = "out"),
+      "patient[0-9A-Z.]+_day[_0-9]+_out"
+    )
+  kraken.report <-
+    unique (str_extract(
+      list.files(path, recursive = T, pattern = "report"),
+      "patient[0-9A-Z.]+_day[_0-9]+_report"
+    ))
+  
+  for (sample in 1:length(go.files)) {
+    go <- paste (c("Patient", go.files[sample]), collapse = "")
+    patientcode <- str_extract(go.files[sample], "^[0-9A-Z.]+")
+    daycode <- str_extract(go.files[sample], "day[_0-9]+")
+    kraken <-
+      kraken.files[str_detect(kraken.files, paste(c(daycode, "_"), collapse = "")) &
+                     str_detect(kraken.files, paste(c("t", patientcode, "_"), collapse = ""))][1]
+    report <-
+      kraken.report[str_detect(kraken.report, paste(c(daycode, "_"), collapse = "")) &
+                      str_detect(kraken.report, paste(c("t", patientcode, "_"), collapse = ""))][1]
+    
+    complete.report <-
+      prevalence.kraken[str_detect(prevalence.kraken, paste(c(daycode, "_"), collapse = "")) &
+                          str_detect(prevalence.kraken, paste(c("t", patientcode, "_"), collapse = ""))]
+    json <-
+      json.files [str_detect(json.files, paste(c(daycode, "_"), collapse = "")) &
+                    str_detect(json.files, paste(c("t", patientcode, "_"), collapse = ""))]
+    genus.json <-
+      genus.json.files [str_detect(genus.json.files, paste(c(daycode, "_"), collapse = "")) &
+                          str_detect(genus.json.files, paste(c("t", patientcode, "_"), collapse = ""))]
+    
+    family.json <-
+      family.json.files [str_detect(family.json.files, paste(c(daycode, "_"), collapse = "")) &
+                           str_detect(family.json.files, paste(c("t", patientcode, "_"), collapse = ""))]
+    
+    patients.filt <-
+      rbind(patients.filt,
+            get.data(
+              eval(parse(text = go)),
+              eval(parse(text =
+                           kraken)),
+              eval(parse(text = report)),
+              eval(parse(text =
+                           complete.report)),
+              eval(parse(text = json)),
+              eval(parse(text = genus.json)),
+              eval(parse(text = family.json))
+            ))
+  }
+  
+}
+
+# Correction
+# Remove contigs that do not have species or genus names assigned
+# Besides, remove everything that is unclassified 
+taxonomic.group <- c("U", "R", "D", "K", "P", "C", "O", "F")
+genus.to.save <- data.frame()
+groups.to.remove <- data.frame()
+
+for (file in  kraken.report[!is.na (kraken.report)]) {
+  for (group in taxonomic.group) {
+    save <- eval(parse(text = file)) %>% filter (str_detect (V4, group))
+    groups.to.remove <- rbind(groups.to.remove, save)
+  }
+  
+  save <-
+    eval(parse(text = file)) %>% filter (str_detect (V4, "G"))
+  genus.to.save <- rbind(genus.to.save, save)
+}
+
+groups.to.remove %>%
+  select (c(V4, V6)) %>%
+  mutate (group = trimws(V6)) %>%
+  distinct() -> groups.to.remove
+
+genus.to.save %>%
+  filter (!str_detect(V4, "1")) %>% 
+  select (c(V4, V6)) %>%
+  mutate (group = trimws(V6)) %>%
+  distinct() -> genus.to.save
+
+patients.filt %>%
+  mutate (species.genus = ifelse(species %in% genus.to.save$group,
+                                 species,
+                                 species.genus)) %>%
+  filter (!species %in% groups.to.remove$group) %>%
+  filter (!str_detect(species, "unclassified")) -> patients.filt.2
+
+patients.filt.2 %>%
+  mutate (genus.covarage = ifelse(species == species.genus, species.covarage, genus.covarage)) %>% 
+  mutate (species = ifelse(species == species.genus, NA, species)) %>% 
+  mutate (species.covarage= ifelse(species == species.genus, NA, species.covarage))-> patients.filt.2
+
+
+# Before filtering: 2,055,351 hits
+# After filtering: 2,032,214 (-23,137 hits)
+
+write.table(
+  patients.filt.2,
+  "../data/Data_5_Patients.txt",
+  quote = F,
+  sep = "\t",
+  row.names = F,
+  col.names = T
+)
+
+### Social data
+GO.Social <- social.go.hits()
+patients.social <- patients.filt.2 %>% filter (goid %in% GO.Social$goid)
+
+write.table(
+  patients.social,
+  "../data/Data_5_Patients_Social.txt",
+  quote = F,
+  sep = "\t",
+  row.names = F,
+  col.names = T
+)
+
+
+
+
+
+
+```
+
+
+#######
+
+
+# GO analysis of the data
+
+```{r}
+# Load data
+patients.filt <- read.csv("../data/Data_5_Patients.txt", sep = "\t", header = T)
+patients.social <- read.csv("../data/Data_5_Patients_Social.txt", sep = "\t", header = T)
+
+
+# Divide the data into the GO classes
+molecular.function <- patients.filt  %>% filter (ontology =="CC")
+biological.process <- patients.filt  %>% filter (ontology =="MF")
+cellular.component <- patients.filt  %>% filter (ontology =="BP")
+
+# Select hit with highest ARGOT score
+molecular.function <- filter.GO.classes.by.Argot(molecular.function)
+biological.process <- filter.GO.classes.by.Argot(biological.process)
+cellular.component <- filter.GO.classes.by.Argot(cellular.component)
+
+# Filter by social
+GO.Social <- social.go.hits()
+molecular.function.social <- molecular.function %>% filter(goid %in% GO.Social$goid)
+biological.process.social <- biological.process %>% filter(goid %in% GO.Social$goid)
+cellular.component.social <- cellular.component %>% filter(goid %in% GO.Social$goid)
+
+rbind(molecular.function, biological.process, cellular.component) -> patients.GO
+rbind(molecular.function.social, biological.process.social, cellular.component.social) -> patients.social.GO
+
+
+patients.GO %>% 
+  mutate (Is.Social = ifelse(goid %in% GO.Social$goid, "social", "not social")) -> patients.GO
+
+patients.social.GO %>% 
+  mutate (Is.Social = ifelse(goid %in% GO.Social$goid, "social", "not social")) -> patients.social.GO
+  
+
+```
+
+
+# Summary Bacteria Table
+
+```{r message=FALSE, warning=FALSE}
+patients.GO %>% 
+  select(c(PatientID, TimePoint, 11:19)) %>% 
+  distinct() -> summary.bacteria
+
+summary.bacteria %>%
+  select(c(PatientID, TimePoint, species)) %>% 
+  distinct() %>% 
+  group_by(PatientID, TimePoint) %>%
+  summarise(Number.Of.Bacteria = n()) %>%
+  as.data.frame() %>%
+  mutate (colors = c(rep(1:10, 4), 1:9)) %>%
+  ggplot(aes(
+    x = PatientID,
+    y = Number.Of.Bacteria,
+    fill = as.factor(colors)
+  )) +
+  geom_bar(stat = "identity", position = "dodge") +
+  scale_fill_brewer(palette = "Spectral") +
+  theme_bw() +
+  ylab("Diversity of Bacteria (counts)") +
+  xlab("PatientID") +
+  ggtitle(paste (c(
+    "Nuber of different bacterias per sample"
+  ),
+  collapse = " ")) +
+  theme(
+    plot.title = element_text(size = 20,
+                              face = "bold.italic",
+                              hjust = 0.5),
+    axis.title = element_text(size = 15)
+  )
+
+```
+
+
+
+
+
+
+```{r}
+
+
+
+patients.filt %>%
+  group_by(PatientID, TimePoint) %>%
+  summarise(
+    "unique.go" = length(unique(goid)),
+    "total.go" = length(goid),
+    "bp.total" = length(which(ontology ==
+                                "BP")),
+    "mf.total" = length(which(ontology ==
+                                "MF")),
+    "cc.total" = length(which(ontology ==
+                                "CC"))) -> part1
+
+days.social %>%
+  mutate (contigs = gsub(".p[0-9]+", "", qpid)) %>%
+  group_by(TimePoint) %>%
+  summarise(
+    "unique.social" = length(unique(goid)),
+    "total.social" = length(goid),
+    "bp.social" = length(which(ontology ==
+                                 "BP")),
+    "mf.social" = length(which(ontology ==
+                                 "MF")),
+    "cc.social" = length(which(ontology ==
+                                 "CC")),
+    "unique.social.cov" = length(unique(species))
+  ) -> part2
+
+##################
+patients.filt %>%
+  select(c(PatientID, TimePoint, species, species.covarage)) %>%
+  distinct() %>%
+  group_by(PatientID, TimePoint) %>%
+  summarise(
+    species.cov = sum(species.covarage, na.rm = T)
+  ) %>% 
+  as.data.frame()-> total.species.prevalence
+
+patients.filt %>%
+  select(c(PatientID, TimePoint, species.genus, genus.covarage)) %>%
+  distinct() %>%
+  group_by(PatientID, TimePoint) %>%
+  summarise(
+    genus.cov = sum(genus.covarage, na.rm = T)
+  ) %>% 
+  as.data.frame()-> total.genus.prevalence
+
+patients.filt %>%
+  select(c(PatientID, TimePoint, species.family, family.covarage)) %>%
+  distinct() %>%
+  group_by(PatientID, TimePoint) %>%
+  summarise(
+    family.cov = sum(family.covarage, na.rm = T)
+  ) %>% 
+  as.data.frame()-> total.family.prevalence
+
+patients.filt %>%
+  select(c(PatientID, TimePoint, species.class, class.covarage)) %>%
+  distinct() %>%
+  group_by(PatientID, TimePoint) %>%
+  summarise(
+    class.cov = sum(class.covarage, na.rm = T)
+  ) %>% 
+  as.data.frame()-> total.class.prevalence
+###############
+patients.social %>%
+  select(c(PatientID, TimePoint, species, species.covarage)) %>%
+  distinct() %>%
+  group_by(PatientID, TimePoint) %>%
+  summarise(
+    species.social.cov = sum(species.covarage, na.rm = T)
+  ) %>% 
+  as.data.frame()-> social.species.prevalence
+
+patients.social %>%
+  select(c(PatientID, TimePoint, species.genus, genus.covarage)) %>%
+  distinct() %>%
+  group_by(PatientID, TimePoint) %>%
+  summarise(
+    genus.social.cov = sum(genus.covarage, na.rm = T)
+  ) %>% 
+  as.data.frame()-> social.genus.prevalence
+
+patients.social %>%
+  select(c(PatientID, TimePoint, species.family, family.covarage)) %>%
+  distinct() %>%
+  group_by(PatientID, TimePoint) %>%
+  summarise(
+    family.social.cov = sum(family.covarage, na.rm = T)
+  ) %>% 
+  as.data.frame()-> social.family.prevalence
+
+patients.social %>%
+  select(c(PatientID, TimePoint, species.class, class.covarage)) %>%
+  distinct() %>%
+  group_by(PatientID, TimePoint) %>%
+  summarise(
+    class.social.cov = sum(class.covarage, na.rm = T)
+  ) %>% 
+  as.data.frame()-> social.class.prevalence
+
+
+
+df_list <- list (
+  total.species.prevalence,
+  total.genus.prevalence,
+  total.family.prevalence,
+  total.class.prevalence,
+  social.species.prevalence,
+  social.genus.prevalence,
+  social.family.prevalence,
+  social.class.prevalence
+)
+
+df_list %>% reduce(full_join, by = c('PatientID', "TimePoint")) %>% 
+  mutate (species.social.cov = species.social.cov / species.cov *100) %>% 
+  mutate (genus.social.cov = genus.social.cov / genus.cov *100) %>% 
+  mutate (family.social.cov = family.social.cov / family.cov *100) %>% 
+  mutate (class.social.cov =class.social.cov /class.cov *100)
+
+
+
+patients.social %>% 
+  filter (PatientID == 1042 & TimePoint==-9) %>% 
+  filter(!is.na(genus.covarage)) %>%  select (species.genus, genus.covarage) %>% distinct() ->t.s
+
+patients.filt %>% 
+  filter (PatientID == 1042 & TimePoint==-9) %>% 
+  filter(!is.na(genus.covarage)) %>%  select (species.genus, genus.covarage) %>% distinct() ->t
+
+sum(t$genus.covarage)
+sum(t.s$genus.covarage)
+```
+
+
+----
+
+
+
+
+```{r}
+patients.filt
+
+# Analyse each go class
+patients.social.CC <- patients.social %>% filter (ontology =="CC")
+patients.social.MF <- patients.social %>% filter (ontology =="MF")
+patients.social.BP <- patients.social %>% filter (ontology =="BP")
+
+# Filter selecting the ones with the highest argot score
+# Each peptide has 1 GO hit in each class (the best hit)
+patients.social.CC <- filter.GO.classes.by.Argot(patients.social.CC)
+patients.social.MF <- filter.GO.classes.by.Argot(patients.social.MF)
+patients.social.BP <- filter.GO.classes.by.Argot(patients.social.BP)
+
+```
+
+```{r}
+merge (patients.social, GO.Social[, c("goid", "behaviour")], by = "goid") -> patients.social
+
+
+
+distribution.go.behaviour <- function(data, name) {
+  data %>%
+    group_by(behaviour, TimePoint, PatientID) %>%
+    summarise(Behaviour = length(behaviour)) %>%
+    ggplot(aes(x = TimePoint, y = Behaviour, colour = PatientID)) +
+    geom_line()  +
+    geom_point() +
+    xlim(c(-15,90)) +
+    facet_wrap(~ behaviour, scales = "free_y", nrow = 3) +
+    theme_bw() +
+    ylab("Number of GO groups") +
+    xlab("TimePoint") +
+    ggtitle(paste (
+      c("Number of social GO groups\nper sample samples in", name),
+      collapse = " "
+    )) +
+    theme(
+      plot.title = element_text(
+        size = 20,
+        face = "bold.italic",
+        hjust = 0.5
+      ),
+      axis.title = element_text(size = 15)
+    )
+}
+
+distribution.go.behaviour(patients.social.CC, "\nCC class")
+distribution.go.behaviour(patients.social.MF, "\nMF class")
+distribution.go.behaviour(patients.social.BP, "\nBP class")
+
+```
+
+
+## Analysis of the prevalnce
+
+```{r}
+patients.social %>%
+  ggplot(aes(x = TimePoint, y = genus.covarage)) +
+  geom_boxplot(outlier.shape =
+                 NA) +
+  xlim(c(-15, 90)) +
+  coord_cartesian(ylim = quantile(patients.social$genus.covarage[!is.na (patients.social$genus.covarage)], c(0.1, 0.9)))
+#facet_wrap( ~ PatientID, scales = "free")
+
+patients.filt %>%
+  ggplot(aes(x = TimePoint, y = genus.covarage)) +
+  geom_boxplot() +
+  xlim(c(-15, 90)) +
+  coord_cartesian(ylim = quantile(patients.filt$genus.covarage[!is.na (patients.filt$genus.covarage)], c(0.1, 0.9)))
+#facet_wrap(~PatientID, scales ="free" )
+
+boxplot(patients.filt$genus.covarage ~ patients.filt$PatientID)
+boxplot(
+  patients.social$genus.covarage ~ patients.social$PatientID,
+  add = TRUE
+)
+
+patients.filt$behaviour <- "NaN"
+patients.filt$bp <- "total"
+patients.social$bp <- "social"
+
+bp.df <- rbind(patients.filt, patients.social)
+
+bp.df %>% 
+  ggplot(aes(x=bp, y=genus.covarage)) + geom_boxplot(aes(fill=PatientID)) +
+  coord_cartesian(ylim = quantile(bp.df$genus.covarage[!is.na(bp.df$genus.covarage)], c(0.05, 0.95)))
+
+bp.df %>% 
+  ggplot(aes(x=bp, y=species.covarage)) + geom_boxplot(aes(fill=PatientID)) +
+  coord_cartesian(ylim = quantile(bp.df$species.covarage[!is.na(bp.df$species.covarage)], c(0.1, 0.9)))
+```
+
+
+
+```{r}
+
+```
+
+
+
+
+
+
+
+
+
+
+

@@ -1,6 +1,5 @@
 # Prevalence of Bacteria
 
-In our GO analysis we need to know the prevalence of each bacteria in our data set. For this purpose we need to generate a count table where we have the number of reads that map to each contig. 
+In order to get the prevalence of each bacteria in each sample we are going to use kraken2 directly on the SRA using the online tool PATRIC. This way, we are able to get an estimate of how many reads are assigned to each bacteria. Once we have the report, we can merge the counts to the bacteria we identified in our data-set when doing the taxonomic classification of the contigs. 
+Note, since we are using reads for taxonomic classification we loose information and therefore we would need to move to the genus level instead of the species level to avoid loosing too much information.
 
-To generate this table we are going to do the following:
-1. Since our initial analysis was done using PATRIC we did not downloaded the data. To get the data, we are going to use the online service [Galaxy](https://usegalaxy.eu/). Specifically, we are going to use **Faster**. Provinding a list of SRA codes (one per line) we can download the fastq files associated to each sample. 

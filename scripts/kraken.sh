@@ -1,6 +1,6 @@
 #!/bin/sh
 # Predict Proteins for each Assembly
-#SBATCH --job-name=1042
+#SBATCH --job-name=ID
 #SBATCH --mail-type=ALL 
 #SBATCH --mail-user=davidtesorillo@hotmail.com 
 #SBATCH --nodes=1
